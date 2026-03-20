@@ -1,0 +1,44 @@
+# ╔══════════════════════════════════════════════════════════╗
+# ║  WealthLens OSS — Docker Compose (Production-Ready)    ║
+# ║  Run: docker compose up -d                             ║
+# ╚══════════════════════════════════════════════════════════╝
+
+services:
+  # --- PostgreSQL Database ---
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: wealthlens
+      POSTGRES_USER: wealthlens
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-changeme_db_password}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U wealthlens"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # --- WealthLens App ---
+  app:
+    build: .
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    ports:
+      - "${PORT:-8000}:8000"
+    environment:
+      DATABASE_URL: postgresql://wealthlens:${DB_PASSWORD:-changeme_db_password}@db:5432/wealthlens
+      SECRET_KEY: ${SECRET_KEY:-change-this-to-a-64-char-random-string-in-production}
+      ENCRYPTION_MASTER_SALT: ${ENCRYPTION_MASTER_SALT:-change-this-to-another-random-string}
+      ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-http://localhost:8000,http://localhost:5173}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      ENVIRONMENT: production
+
+volumes:
+  pgdata:
+    driver: local

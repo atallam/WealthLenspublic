@@ -1,0 +1,35 @@
+# ╔══════════════════════════════════════════════════╗
+# ║  WealthLens OSS — Render Blueprint               ║
+# ║  One-click deploy: https://render.com/deploy     ║
+# ╚══════════════════════════════════════════════════╝
+
+services:
+  - type: web
+    name: wealthlens-oss
+    runtime: python
+    plan: free
+    buildCommand: |
+      pip install -r requirements.txt
+      cd frontend && npm install && npm run build && cd ..
+    startCommand: gunicorn app.main:app -w 2 -k uvicorn.workers.UvicornWorker --bind 0.0.0.0:$PORT --timeout 120
+    envVars:
+      - key: DATABASE_URL
+        fromDatabase:
+          name: wealthlens-db
+          property: connectionString
+      - key: SECRET_KEY
+        generateValue: true
+      - key: ENCRYPTION_MASTER_SALT
+        generateValue: true
+      - key: ALLOWED_ORIGINS
+        sync: false
+      - key: ANTHROPIC_API_KEY
+        sync: false
+      - key: ENVIRONMENT
+        value: production
+
+databases:
+  - name: wealthlens-db
+    plan: free
+    databaseName: wealthlens
+    user: wealthlens

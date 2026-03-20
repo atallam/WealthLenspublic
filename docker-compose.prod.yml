@@ -1,0 +1,108 @@
+# ╔══════════════════════════════════════════════════════════════╗
+# ║  WealthLens OSS — Production Docker Compose                 ║
+# ║  Nginx (CDN-ready) + FastAPI + PostgreSQL + Redis           ║
+# ║  Run: docker compose -f docker-compose.prod.yml up -d      ║
+# ╚══════════════════════════════════════════════════════════════╝
+#
+# For custom domain + free SSL:
+#   1. Point your domain DNS to your server IP
+#   2. Use Cloudflare (free) as DNS proxy → instant global CDN + SSL
+#   3. Or use certbot: certbot certonly --nginx -d yourdomain.com
+#      Then uncomment the SSL block in nginx/default.conf
+
+services:
+  # ── Nginx (entry point) ──
+  nginx:
+    image: nginx:1.27-alpine
+    restart: unless-stopped
+    ports:
+      - "${PORT:-80}:80"
+      - "443:443"
+    volumes:
+      - ./nginx/default.conf:/etc/nginx/conf.d/default.conf:ro
+      - ./nginx/wealthlens_locations.conf:/etc/nginx/conf.d/wealthlens_locations.conf:ro
+      - frontend_dist:/app/frontend/dist:ro
+      # Uncomment for SSL certificates:
+      # - ./ssl:/etc/nginx/ssl:ro
+    depends_on:
+      - app
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost/api/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+  # ── FastAPI Application ──
+  app:
+    build: .
+    restart: unless-stopped
+    expose:
+      - "8000"
+    environment:
+      DATABASE_URL: postgresql://wealthlens:${DB_PASSWORD:-changeme_in_production}@db:5432/wealthlens
+      SECRET_KEY: ${SECRET_KEY:?Set SECRET_KEY in .env}
+      ENCRYPTION_MASTER_SALT: ${ENCRYPTION_MASTER_SALT:?Set ENCRYPTION_MASTER_SALT in .env}
+      REDIS_URL: redis://redis:6379/0
+      ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-https://yourdomain.com}
+      GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      ENVIRONMENT: production
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    volumes:
+      - frontend_dist:/app/frontend/dist
+    healthcheck:
+      test: ["CMD", "python", "-c", "import httpx; r=httpx.get('http://localhost:8000/api/health'); assert r.status_code==200"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 15s
+
+  # ── PostgreSQL ──
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: wealthlens
+      POSTGRES_USER: wealthlens
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-changeme_in_production}
+      # Performance tuning for small VPS (2GB RAM)
+      POSTGRES_INITDB_ARGS: "--data-checksums"
+    command: >
+      postgres
+        -c shared_buffers=128MB
+        -c effective_cache_size=512MB
+        -c work_mem=4MB
+        -c max_connections=100
+        -c random_page_cost=1.1
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    expose:
+      - "5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U wealthlens"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ── Redis (market data cache) ──
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: redis-server --maxmemory 64mb --maxmemory-policy allkeys-lru --save ""
+    expose:
+      - "6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+
+volumes:
+  pgdata:
+    driver: local
+  frontend_dist:
+    driver: local

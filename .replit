@@ -1,0 +1,18 @@
+# WealthLens OSS — Replit Configuration
+run = "python3 run.py"
+entrypoint = "run.py"
+
+[nix]
+channel = "stable-24_05"
+
+[nix.packages]
+nodejs = "nodejs_20"
+
+[env]
+DATABASE_URL = "sqlite:///./wealthlens.db"
+ENVIRONMENT = "production"
+PORT = "8000"
+
+[deployment]
+run = ["sh", "-c", "python3 run.py"]
+deploymentTarget = "cloudrun"
